@@ -36,7 +36,7 @@ amp = [
 ]
 
 # Load data
-data, countries, dates, pop = funcs.load_data()
+data, countries, dates, pop = funcs.load_data2()
 
 
 def make_labels(d):
