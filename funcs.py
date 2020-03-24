@@ -38,12 +38,12 @@ def load_data():
 		'China, Taiwan Province of China': 'Taiwan*',
 		'United Republic of Tanzania': 'Tanzania',
 		'Republic of Moldova': 'Moldova',
-		'Bahamas': 'Bahamas, The',
+		'Bahamas, The': 'Bahamas',
 		'Venezuela (Bolivarian Republic of)': 'Venezuela',
 		'Russian Federation': 'Russia',
 		'Viet Nam': 'Vietnam',
 		'Bolivia (Plurinational State of)': 'Bolivia',
-		'Gambia': 'Gambia, The',
+		'Gambia, The': 'Gambia',
 		"Dem. People's Republic of Korea": 'Korea, South',
 		'Syrian Arab Republic': 'Syria',
 		'Cabo Verde': 'Cape Verde',
@@ -52,8 +52,8 @@ def load_data():
 	pop_df = pd.read_csv('data/world_population.csv')
 	pop_dict = {}
 	for (_, _, country, value) in pop_df.values:
-		country = synonyms.get(country, country)
-		pop_dict[country] = float(value) * 1000
+		tr_country = synonyms.get(country, country)
+		pop_dict[tr_country] = float(value) * 1000
 
 	data = collections.defaultdict(list)
 	population, dates = {}, {}
