@@ -42,7 +42,7 @@ data, countries, dates, pop = funcs.load_data()
 def make_labels(d):
     """Makes hover labels"""
     return [
-        f'Change: {d:6d} \nPopulation: {pop[i]:12.2f}'
+        f'Change: {d:6d} \nPopulation: {int(pop[i]):12d}'
         for i, d in enumerate(d)
     ]
 
@@ -112,19 +112,22 @@ app.layout = html.Div(
         # ),
 
         html.Div(
-            className="choropleth",
+            className="fake-colorbar",
             children=[
                 dcc.Graph(
-                        id='map-graph',
+                    id='map-colorbar',
+                    config={
+                        'staticPlot': True,
+                    }
                 ),
             ]
         ),
 
         html.Div(
-            className="fake-colorbar",
+            className="choropleth",
             children=[
                 dcc.Graph(
-                        id='map-colorbar',
+                    id='map-graph',
                 ),
             ]
         ),
@@ -198,13 +201,18 @@ def draw_colorbar(t, fmt):
 
     if fmt == 'raw':
         d = r
+        addendum = ''
     else:
         d = n
+        addendum = ' (per 10.000 people)'
 
     # Make labels for 'colorbar'
     bins = np.linspace(0, max(d), len(amp))
     _, edges = np.histogram(d, bins)
-    edges = [round(i, 1) for i in edges]
+    if fmt == 'raw':
+        edges = [int(i) for i in edges]
+    else:
+        edges = [round(i, 1) for i in edges]
     labelanchor = 1/len(edges)
     labelpad = 1/(2*len(edges))
 
@@ -222,7 +230,7 @@ def draw_colorbar(t, fmt):
         'layout': go.Layout(
             {
                 'title': {
-                    'text': 'New Cases per 10.000 people',
+                    'text': 'New Cases' + addendum,
                     'xanchor': 'center',
                     'x': 0.5,
                     'yanchor': 'top',
@@ -257,7 +265,7 @@ def draw_colorbar(t, fmt):
                     } for idx, e in enumerate(edges)
                 ]
             }
-        )
+        ),
     }
 
 # @app.callback(
@@ -313,5 +321,5 @@ def draw_colorbar(t, fmt):
 #     }
 
 if __name__ == '__main__':
-    DEBUG = False
+    DEBUG = True
     app.run_server(debug=DEBUG)
