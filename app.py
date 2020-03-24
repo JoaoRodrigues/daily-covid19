@@ -321,5 +321,5 @@ def draw_colorbar(t, fmt):
 #     }
 
 if __name__ == '__main__':
-    DEBUG = True
+    DEBUG = False
     app.run_server(debug=DEBUG)
