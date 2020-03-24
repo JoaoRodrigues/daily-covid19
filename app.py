@@ -66,6 +66,7 @@ def calculate_change(d, t):
 
 # Setup app
 app = dash.Dash(__name__)
+server = app.server
 
 app.layout = html.Div(
     className="content",
@@ -312,4 +313,5 @@ def draw_colorbar(t, fmt):
 #     }
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    DEBUG = False
+    app.run_server(debug=DEBUG)
