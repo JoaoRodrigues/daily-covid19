@@ -71,7 +71,7 @@ app.layout = html.Div(
     className="content",
     children=[
         html.P(
-            'Evolution of COVID-19 Pandemic',
+            'Evolution of COVID-19 Pandemic - IN DEVELOPMENT - DATA MIGHT BE WRONG',
             className='title'
         ),
 
@@ -129,7 +129,7 @@ app.layout = html.Div(
         ),
 
         # html.P(
-        #     'Developed & Maintained by Levitt Lab',
+        #     'Developed & Maintained by Levitt Lab at Stanford',
         #     className='footer'
         # ),
     ]
