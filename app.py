@@ -2,324 +2,440 @@
 # -*- coding: utf-8 -*-
 
 """
-This is an ugly, preliminary, hacky example.
+Analysis Dashboard for COVID-19 Pandemic Evolution.
 """
 
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
+from dash.exceptions import PreventUpdate
 
 import numpy as np
+import pandas as pd
 
-import plotly
-import plotly.graph_objects as go
+from statsmodels.nonparametric import smoothers_lowess
 
-import funcs
+# Source of data
+DATA = "https://s3-us-west-1.amazonaws.com/starschema.covid/JHU_COVID-19.csv"
 
-# Color Scale
-# Taken from: plotly.colors.cmocean.py
-amp = [
-    "rgb(255, 255, 255)",
-    # "rgb(241, 236, 236)",
-    "rgb(230, 209, 203)",
-    "rgb(221, 182, 170)",
-    "rgb(213, 156, 137)",
-    "rgb(205, 129, 103)",
-    "rgb(196, 102, 73)",
-    "rgb(186, 74, 47)",
-    "rgb(172, 44, 36)",
-    "rgb(149, 19, 39)",
-    "rgb(120, 14, 40)",
-    "rgb(89, 13, 31)",
-    "rgb(60, 9, 17)",
+
+def read_data_as_dataframe(url):
+
+    df = pd.read_csv(
+        url,
+        # Which cols to load
+        usecols=[
+            'Country/Region',
+            'Province/State',
+            'County',
+            'Date',
+            'Case_Type',
+            'Cases'
+        ],
+        # Specify dtype to save memory on load
+        dtype={
+            'Country/Region': 'str',
+            'Province/State': 'str',
+            'County': 'str',
+            'Date': 'str',
+            'Case_Type': 'str',
+            'Cases': 'int'
+        }
+    )
+
+    # Rename US to United States
+    df.loc[df['Country/Region'] == 'US', 'Country/Region'] = 'United States'
+
+    return df
+
+
+# Read and prepare data/inputs
+df = read_data_as_dataframe(DATA)
+
+countries = list(df['Country/Region'].unique())
+provinces = list(df['Province/State'].unique())
+counties = list(df['County'].unique())
+agg_regions = countries + provinces + counties
+
+dates_as_str = [
+    str(d.strftime('%b %d'))
+    for d in pd.to_datetime(df['Date'].unique())
 ]
 
-# Load data
-data, countries, dates, pop = funcs.load_data2()
+region_selector_options = [
+    {'label': str(item), 'value': str(item)}
+    for item in agg_regions
+]
 
+dataset_selector_options = [
+    str(v) for v in df['Case_Type'].unique()
+]
 
-def make_labels(d):
-    """Makes hover labels"""
-    return [
-        f'Change: {d:6d} \nPopulation: {int(pop[i]):12d}'
-        for i, d in enumerate(d)
-    ]
-
-def calculate_change(d, t):
-    """
-    Difference in number of cases normalized per country, 
-    expressed as per 10.000 people.
-    """
-
-    if t:
-        t = (-1 * t) - 1  # if t==1: return v[-1] - v[-2] (1 day)
-
-    d = [
-        v[-1] - v[t]
-        for v in data.values()
-    ]
-
-    n = [1e4 * (d/pop[idx]) for idx, d in enumerate(d)]
-    return d, n
-
-
-# Setup app
+# Create Dash/Flask app
 app = dash.Dash(__name__)
-server = app.server
+server = app.server  # for heroku deployment
 
 app.layout = html.Div(
-    className="content",
+    id="content",
     children=[
-        html.P(
-            'Evolution of COVID-19 Pandemic - IN DEVELOPMENT - DATA MIGHT BE WRONG',
-            className='title'
-        ),
 
         html.Div(
-            className="selectors",
+            id="title",
             children=[
-                dcc.RadioItems(
-                    id='date-range-button',
-                    options=[
-                        {'label': '1d', 'value': 1},
-                        {'label': '3d', 'value': 3},
-                        {'label': '1w', 'value': 7},
-                        {'label': '2w', 'value': 14},
-                        {'label': '1m', 'value': 30},
-                        {'label': 'all', 'value': 0}
-                    ],
-                    value=1
-                ),
-                dcc.RadioItems(
-                    id='data-format-button',
-                    options=[
-                        {'label': 'raw', 'value': 'raw'},
-                        {'label': 'normalized', 'value': 'norm'},
-                    ],
-                    value='raw'
-                ),
-            ]
-        ),
-
-        # html.Div(
-        #     className="lineplot",
-        #     children=[
-        #         dcc.Graph(
-        #                 id='line-plot',
-        #         ),
-        #     ]
-        # ),
-
-        html.Div(
-            className="fake-colorbar",
-            children=[
-                dcc.Graph(
-                    id='map-colorbar',
-                    config={
-                        'staticPlot': True,
-                    }
+                html.P(
+                    'Dashboard to analyze COVID-19 datasets',
                 ),
             ]
         ),
 
         html.Div(
-            className="choropleth",
+            id="selectors",
             children=[
-                dcc.Graph(
-                    id='map-graph',
+                html.Label(
+                    id='dataset-label',
+                    children=[
+                        "Select a subset of the data:",
+                        dcc.Dropdown(
+                            id='dataset-selector',
+                            options=[
+                                {'label': o, 'value': o}
+                                for o in dataset_selector_options
+                            ],
+                            value='Confirmed'
+                        ),
+                    ]
+                ),
+
+                html.Label(
+                    id='region-label',
+                    children=[
+                        "Select a region:",
+                        dcc.Dropdown(
+                            id='region-selector',
+                            multi=True,
+                            # Some defaults
+                            options=[
+                                {'label': 'Spain', 'value': 'Spain'},
+                                {'label': 'Italy', 'value': 'Italy'}
+                            ],
+                            value=['Spain', 'Italy']
+                        ),
+                    ]
                 ),
             ]
         ),
 
-        # html.P(
-        #     'Developed & Maintained by Levitt Lab at Stanford',
-        #     className='footer'
-        # ),
-    ]
-)
+        html.Div(
+            id='data-mode-container',
+            children=[
+                html.Label(
+                    children=[
+                        dcc.Checklist(
+                            id='lowess-checkbox',
+                            options=[
+                                {'label': 'Show LOWESS fit', 'value': 'fit'},
+                            ],
+                            value=['']
+                        ),
+                    ]
+                ),
+                html.Label(
+                    children=[
+                        dcc.Checklist(
+                            id='log-checkbox',
+                            options=[
+                                {'label': 'Use log scale', 'value': 'log'},
+                            ],
+                            value=['']
+                        ),
+                    ]
+                ),
+            ]
+        ),
 
-# Interactivity
-@app.callback(
-    Output('map-graph', 'figure'),
-    [
-        Input('date-range-button', 'value'),
-        Input('data-format-button', 'value')
-    ]
-)
-def draw_choropleth(t, fmt):
-    """Draws the map chart. Returns figure."""
+        html.Div(
+            className="graph-area",
+            children=[
+                html.Div(
+                    id='rawplot'
+                ),
+                html.Div(
+                    id='ratioplot'
+                ),
 
-    r, n = calculate_change(data, t)
-    if fmt == 'raw':
-        d = r
-    else:
-        d = n
-
-    return {
-        'data': [
-            go.Choropleth(
-                locationmode='country names',
-                locations=countries,
-                z=d,
-                colorscale=amp,
-                marker_line_color='lightgray', # regional boundaries
-                marker_line_width=0.5,
-                showscale=False,
-                # customdata=None,
-                text=make_labels(r)
-            ),
-        ],
-        'layout': go.Layout(
-            {
-                'height': 1000,
-                'geo': {
-                    'resolution': 110,
-                    'showframe': False,
-                    'showcoastlines': True,
-                    'coastlinecolor': 'lightgray',
-                    'projection_type': 'natural earth'
-                },
-                'margin': {"r": 0, "t": 0, "l": 0, "b": 0},
-                'transition': {'duration': 50},
-            }
+                dcc.RangeSlider(
+                    id='date-selector',
+                    min=0,
+                    max=len(dates_as_str),
+                    step=1,
+                    pushable=1,  # min 1 day
+                    allowCross=False,
+                    value=[0, len(dates_as_str)],  # default, all data points
+                    marks={
+                        idx: dates_as_str[idx]
+                        for idx in range(0, len(dates_as_str), 7)
+                    },
+                ),
+            ]
         )
-    }
+    ]
+)
+
+
+# Callbacks
+# We can be smarter and update the charts in tandem, to avoid recalculations
+# but for now it'll do.
+
+@app.callback(
+    Output("region-selector", "options"),
+    [Input("region-selector", "search_value")],
+    [State("region-selector", "value")],
+)
+def update_dataselector_options(search_value, value):
+    """Fills the search box dinamically as users type."""
+
+    if not search_value:
+        raise PreventUpdate
+
+    return [
+        o for o in region_selector_options
+        if search_value in o["label"] or o["value"] in (value or [])
+    ]
 
 
 @app.callback(
-    Output('map-colorbar', 'figure'),
+    Output("rawplot", "children"),
     [
-        Input('date-range-button', 'value'),
-        Input('data-format-button', 'value')
-    ]
+        Input('dataset-selector', 'value'),
+        Input('region-selector', 'value'),
+        Input('date-selector', 'value'),
+        Input('lowess-checkbox', 'value'),
+        Input('log-checkbox', 'value')
+    ],
 )
-def draw_colorbar(t, fmt):
+def draw_lineplots(dataset, regions, dates, datamode, transform):
+    """Updates plots with options from region-selector"""
 
-    # recalculate...
-    r, n = calculate_change(data, t)
+    datamode = datamode[-1]  # stupid hack for stupid checkboxes
+    transform = transform[-1]
 
-    if fmt == 'raw':
-        d = r
-        addendum = ''
-    else:
-        d = n
-        addendum = ' (per 10.000 people)'
+    if not regions:
+        raise PreventUpdate
 
-    # Make labels for 'colorbar'
-    bins = np.linspace(0, max(d), len(amp))
-    _, edges = np.histogram(d, bins)
-    if fmt == 'raw':
-        edges = [int(i) for i in edges]
-    else:
-        edges = [round(i, 1) for i in edges]
-    labelanchor = 1/len(edges)
-    labelpad = 1/(2*len(edges))
+    # Get selected data
+    y_data = select_data(df, dataset, regions)
 
-    return {
-        'data': [
-            # Plotly does not support horizontal colorbars
-            # so we explictly make our own as an hbar chart.
-            go.Bar(
-                orientation='h',
-                y=['amp'] * len(amp),
-                x=[1] * len(amp),
-                marker=dict(color=amp)
-            )
-        ],
-        'layout': go.Layout(
-            {
-                'title': {
-                    'text': 'New Cases' + addendum,
-                    'xanchor': 'center',
-                    'x': 0.5,
-                    'yanchor': 'top',
-                    'y': 0.99
-                },
-                'height': 75,
-                'margin': {"r": 0, "t": 0, "l": 0, "b": 0},
-                'transition': {'duration': 250},
-                'barmode': 'stack',
-                'barnorm': 'fraction',
-                'bargap': 0.5,
-                'showlegend': False,
+    # Select x range
+    x0, xN = dates
+    x_data = dates_as_str[x0: xN]
+
+    # Trim Y data accordingly
+    y_data = [y[x0: xN] for y in y_data]
+
+    # Log scale?
+    if transform == 'log':
+        y_data = list(map(np.log, y_data))
+
+    # Make Figure Data
+    figdata = make_figdata_scatter(x_data, y_data, regions)
+
+    # Fit?
+    if datamode == 'fit':
+        fit_data = list(map(lowess, y_data))
+        figdata += make_figdata_line(x_data, fit_data, regions)
+
+    fig = dcc.Graph(
+        id='confirmed-cases',
+        figure={
+            'data': figdata,
+            'layout': {
                 'xaxis': {
-                    'range': [-0.02, 1.02],
-                    'showticklabels': False,
-                    'showgrid': False,
                     'zeroline': False,
+                    'showline': True,
+                    'mirror': True,
+                    'linewidth': 1,
+                    'linecolor': 'black'
                 },
                 'yaxis': {
-                    'showticklabels': False,
-                    'showgrid': False,
+                    'title': 'Number of Cases',
                     'zeroline': False,
+                    'showline': True,
+                    'mirror': True,
+                    'linewidth': 1,
+                    'linecolor': 'black'
                 },
-                'annotations': [
-                    {
-                        'x': 0 + labelpad+idx*labelanchor, 
-                        'y': -0.35, 
-                        'xref': 'x', 
-                        'yref': 'y', 
-                        'text': str(e), 
-                        'showarrow': False
-                    } for idx, e in enumerate(edges)
-                ]
+                'margin': {'t': 20, 'pad': 0},
+                'hovermode': 'closest',
+            },
+        },
+    )
+
+    return [fig]
+
+
+@app.callback(
+    Output("ratioplot", "children"),
+    [
+        Input('dataset-selector', 'value'),
+        Input('region-selector', 'value'),
+        Input('date-selector', 'value'),
+        Input('lowess-checkbox', 'value'),
+        Input('log-checkbox', 'value')
+    ],
+)
+def draw_change_ratio(dataset, regions, dates, datamode, transform):
+    """Updates plots with options from region-selector"""
+
+    datamode = datamode[-1]  # stupid hack for stupid checkboxes
+    transform = transform[-1]
+
+    if not regions:
+        raise PreventUpdate
+
+    # Get selected data
+    y_data = select_data(df, dataset, regions)
+
+    # Calculate change ratio
+    y_data = change_ratio(y_data)
+
+    # Select x range
+    x0, xN = dates
+    x_data = dates_as_str[x0: xN]
+
+    # Trim Y data accordingly
+    y_data = [y[x0: xN] for y in y_data]
+
+    # Log scale?
+    if transform == 'log':
+        y_data = list(map(np.log, y_data))
+
+    # Make Figure Data
+    figdata = make_figdata_scatter(x_data, y_data, regions)
+
+    # Fit?
+    if datamode == 'fit':
+        fit_data = list(map(lowess, y_data))
+        figdata += make_figdata_line(x_data, fit_data, regions)
+
+    fig = dcc.Graph(
+        id='confirmed-cases',
+        figure={
+            'data': figdata,
+            'layout': {
+                'xaxis': {
+                    'zeroline': False,
+                    'showline': True,
+                    'mirror': True,
+                    'linewidth': 1,
+                    'linecolor': 'black'
+                },
+                'yaxis': {
+                    'title': 'Case Change Ratio (1 day)',
+                    'zeroline': False,
+                    'showline': True,
+                    'mirror': True,
+                    'linewidth': 1,
+                    'linecolor': 'black'
+                },
+                'margin': {'t': 20, 'pad': 0},
+                'hovermode': 'closest',
             }
-        ),
-    }
+        }
+    )
 
-# @app.callback(
-#     Output('line-plot', 'figure'),
-#     [Input('date-range-button', 'value')]
-# )
-# def draw_lineplot(t=1):
-#     """Draws the line plot. Returns figure."""
+    return [fig]
 
-#     if t:
-#         t = (-1 * t) - 1
 
-#     # plotted_data = []
-#     # for v in data.values():
-#     #     print(v[t], v[-1])
-#     #     if v[t]:
-#     #         v = (100 * v[-1]) / v[t]
-#     #     plotted_data.append(v)
-#     plotted_data = [
-#         v[-1] - v[t]  for v in data.values()
-#     ]
+# Auxiliary functions
+def lowess(data, frac=0.15, it=0):
+    return smoothers_lowess.lowess(
+        endog=data,
+        exog=list(range(len(data))),
+        frac=frac,
+        it=it
+    )[:, 1]
 
-#     return {
-#         'data': [
-#             go.Scatter(
-#                 x=dates,
-#                 y=data['US'],
-#                 # locations=countries,
-#                 # z=plotted_data,
-#                 # colorscale=amp,
-#                 # marker_line_color='lightgray', # regional boundaries
-#                 # marker_line_width=0.5,
-#                 # showscale=False,
-#                 # # dragmode=False,
-#                 # # customdata=None,
-#                 # colorbar={
-#                 #         'title': {
-#                 #             'text': 'Confirmed Cases',
-#                 #         },
-#                 #         'lenmode': "fraction",
-#                 #         'len': 0.5,
-#                 # },
-#             ),
-#         ],
-#         'layout': go.Layout(
-#             {
-#                 'width': 400,
-#                 'height': 400,
-#                 'margin': {"r": 0, "t": 0, "l": 0, "b": 0},
-#                 'transition': {'duration': 250},
-#             }
-#         )
-#     }
+
+def make_figdata_scatter(x_data, y_data, labels):
+    """Returns a figure.data list to pass to dcc.Graph"""
+
+    return [
+        {
+            'x': x_data,
+            'y': y_data[i],
+            'name': l,
+            'mode': 'markers',
+            'marker': {'size': 10}
+        } for i, l in enumerate(labels)
+    ]
+
+
+def make_figdata_line(x_data, y_data, labels):
+    """Returns a figure.data list to pass to dcc.Graph"""
+
+    return [
+        {
+            'x': x_data,
+            'y': y_data[i],
+            'name': l,
+            'mode': 'line',
+            'line': {
+                'dash': 'dash',
+                'color': 'grey',
+                'width': 1
+            },
+        } for i, l in enumerate(labels)
+    ]
+
+
+def select_data(dataframe, subset, regions):
+    """Returns a subset of the entire dataframe"""
+
+    y_data = []
+
+    for r in regions:
+        mask = (
+            (dataframe['Country/Region'] == r) | \
+            (dataframe['Province/State'] == r) | \
+            (dataframe['County'] == r)
+        ) & (dataframe['Case_Type'] == subset)
+
+        y = dataframe[mask]
+        if len(y) > len(dates_as_str):  # eg China selects all provinces
+            y = dataframe[mask].groupby('Date').sum()
+
+        y = list(y['Cases'])
+        y_data.append(y)
+
+    # Some data (US counties) only has data from a certain date. Left-pad with 0
+    for idx, ytrace in enumerate(y_data[:]):
+        diff = len(dates_as_str) - len(ytrace)
+        if diff > 0:
+            y_data[idx] = [0 for _ in range(diff)] + ytrace
+
+    return y_data
+
+
+def change_ratio(data):
+    """Calculates the ratio N+1/N for each element in data"""
+
+    d = data[:]
+    for idx, trace in enumerate(data):
+        ratio = []
+        tA, tB = trace[1:], trace[:-1]
+        for iA, iB in zip(tA, tB):
+            try:
+                r = iA / iB
+            except ZeroDivisionError:
+                r = 0.0
+
+            ratio.append(r)
+
+        d[idx] = [0] + ratio
+
+    return d
+
 
 if __name__ == '__main__':
-    DEBUG = False
-    app.run_server(debug=DEBUG)
+    app.run_server(debug=True)
