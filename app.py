@@ -5,6 +5,7 @@
 Analysis Dashboard for COVID-19 Pandemic Evolution.
 """
 
+import collections
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
@@ -16,9 +17,17 @@ import pandas as pd
 
 from statsmodels.nonparametric import smoothers_lowess
 
-# Source of data
-DATA = "https://s3-us-west-1.amazonaws.com/starschema.covid/JHU_COVID-19.csv"
+def _unique_sort(iterable):
+    """Returns unique elements in the iterable, in order of appearance"""
+    d = collections.OrderedDict()
+    for i in iterable:
+        d[i] = None
+    return list(d.keys())
 
+
+# Source of data
+# DATA = "https://s3-us-west-1.amazonaws.com/starschema.covid/JHU_COVID-19.csv"
+DATA = "https://levitt-covid19-data.s3-us-west-1.amazonaws.com/Data_COVID-19.csv"
 
 def read_data_as_dataframe(url):
 
@@ -44,8 +53,8 @@ def read_data_as_dataframe(url):
         }
     )
 
-    # Rename US to United States
-    df.loc[df['Country/Region'] == 'US', 'Country/Region'] = 'United States'
+    # Convert dates to datetime
+    df['Date'] = pd.to_datetime(df['Date'], format='%d-%m-%Y')
 
     return df
 
@@ -59,8 +68,8 @@ counties = list(df['County'].unique())
 agg_regions = countries + provinces + counties
 
 dates_as_str = [
-    str(d.strftime('%b %d'))
-    for d in pd.to_datetime(df['Date'].unique())
+    d.strftime('%b %d')
+    for d in _unique_sort(df['Date'])
 ]
 
 region_selector_options = [
