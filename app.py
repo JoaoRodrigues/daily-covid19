@@ -78,7 +78,8 @@ region_selector_options = [
 ]
 
 dataset_selector_options = [
-    str(v) for v in df['Case_Type'].unique()
+    {'label': str(v), 'value': str(v)}
+    for v in df['Case_Type'].unique()
 ]
 
 # Create Dash/Flask app
@@ -107,11 +108,11 @@ app.layout = html.Div(
                         "Select a subset of the data:",
                         dcc.Dropdown(
                             id='dataset-selector',
+                            multi=True,
                             options=[
-                                {'label': o, 'value': o}
-                                for o in dataset_selector_options
+                                {'label': 'Confirmed', 'value': 'Confirmed'}
                             ],
-                            value='Confirmed'
+                            value=['Confirmed']
                         ),
                     ]
                 ),
@@ -143,7 +144,7 @@ app.layout = html.Div(
                         dcc.Checklist(
                             id='lowess-checkbox',
                             options=[
-                                {'label': 'Show LOWESS fit', 'value': 'fit'},
+                                {'label': 'Smooth with LOWESS', 'value': 'fit'},
                             ],
                             value=['']
                         ),
@@ -197,11 +198,27 @@ app.layout = html.Div(
 # but for now it'll do.
 
 @app.callback(
+    Output("dataset-selector", "options"),
+    [Input("dataset-selector", "search_value")],
+    [State("dataset-selector", "value")],
+)
+def update_dataselector_options(search_value, value):
+    """Fills the search box dinamically as users type."""
+
+    if not search_value:
+        raise PreventUpdate
+
+    return [
+        o for o in dataset_selector_options
+        if search_value in o["label"] or o["value"] in (value or [])
+    ]
+
+@app.callback(
     Output("region-selector", "options"),
     [Input("region-selector", "search_value")],
     [State("region-selector", "value")],
 )
-def update_dataselector_options(search_value, value):
+def update_region_selector_options(search_value, value):
     """Fills the search box dinamically as users type."""
 
     if not search_value:
@@ -223,7 +240,7 @@ def update_dataselector_options(search_value, value):
         Input('log-checkbox', 'value')
     ],
 )
-def draw_lineplots(dataset, regions, dates, datamode, transform):
+def draw_lineplots(datasets, regions, dates, datamode, transform):
     """Updates plots with options from region-selector"""
 
     datamode = datamode[-1]  # stupid hack for stupid checkboxes
@@ -232,27 +249,29 @@ def draw_lineplots(dataset, regions, dates, datamode, transform):
     if not regions:
         raise PreventUpdate
 
-    # Get selected data
-    y_data = select_data(df, dataset, regions)
-
     # Select x range
     x0, xN = dates
     x_data = dates_as_str[x0: xN]
 
-    # Trim Y data accordingly
-    y_data = [y[x0: xN] for y in y_data]
+    figdata = []
+    for dataset in datasets:
 
-    # Log scale?
-    if transform == 'log':
-        y_data = list(map(np.log, y_data))
+        # Get selected data
+        y_data = select_data(df, dataset, regions)
 
-    # Make Figure Data
-    figdata = make_figdata_scatter(x_data, y_data, regions)
+        # Trim Y data accordingly
+        y_data = [y[x0: xN] for y in y_data]
 
-    # Fit?
-    if datamode == 'fit':
-        fit_data = list(map(lowess, y_data))
-        figdata += make_figdata_line(x_data, fit_data, regions)
+        # Fit before transforming.
+        if datamode == 'fit':
+            fit_data = list(map(lowess, y_data))
+
+        # Log scale?
+        if transform == 'log':
+            y_data = list(map(np.log, y_data))
+
+        # Make Figure Data
+        figdata += make_figdata(x_data, y_data, regions, dataset)
 
     fig = dcc.Graph(
         id='confirmed-cases',
@@ -293,7 +312,7 @@ def draw_lineplots(dataset, regions, dates, datamode, transform):
         Input('log-checkbox', 'value')
     ],
 )
-def draw_change_ratio(dataset, regions, dates, datamode, transform):
+def draw_change_ratio(datasets, regions, dates, datamode, transform):
     """Updates plots with options from region-selector"""
 
     datamode = datamode[-1]  # stupid hack for stupid checkboxes
@@ -302,30 +321,31 @@ def draw_change_ratio(dataset, regions, dates, datamode, transform):
     if not regions:
         raise PreventUpdate
 
-    # Get selected data
-    y_data = select_data(df, dataset, regions)
-
-    # Calculate change ratio
-    y_data = change_ratio(y_data)
-
     # Select x range
     x0, xN = dates
     x_data = dates_as_str[x0: xN]
 
-    # Trim Y data accordingly
-    y_data = [y[x0: xN] for y in y_data]
+    figdata = []
+    for dataset in datasets:
+        # Get selected data
+        y_data = select_data(df, dataset, regions)
 
-    # Log scale?
-    if transform == 'log':
-        y_data = list(map(np.log, y_data))
+        # Trim Y data accordingly
+        y_data = [y[x0: xN] for y in y_data]
 
-    # Make Figure Data
-    figdata = make_figdata_scatter(x_data, y_data, regions)
+        # Do we fit?
+        if datamode == 'fit':
+            y_data = list(map(lowess, y_data))
 
-    # Fit?
-    if datamode == 'fit':
-        fit_data = list(map(lowess, y_data))
-        figdata += make_figdata_line(x_data, fit_data, regions)
+        # Calculate change ratio
+        y_data = change_ratio(y_data)
+
+        # Log scale?
+        if transform == 'log':
+            y_data = list(map(np.log, y_data))
+
+        # Make Figure Data
+        figdata += make_figdata(x_data, y_data, regions, dataset)
 
     fig = dcc.Graph(
         id='confirmed-cases',
@@ -366,34 +386,19 @@ def lowess(data, frac=0.15, it=0):
     )[:, 1]
 
 
-def make_figdata_scatter(x_data, y_data, labels):
+def make_figdata(x_data, y_data, labels, dataset_name):
     """Returns a figure.data list to pass to dcc.Graph"""
 
     return [
         {
             'x': x_data,
             'y': y_data[i],
-            'name': l,
-            'mode': 'markers',
-            'marker': {'size': 10}
-        } for i, l in enumerate(labels)
-    ]
-
-
-def make_figdata_line(x_data, y_data, labels):
-    """Returns a figure.data list to pass to dcc.Graph"""
-
-    return [
-        {
-            'x': x_data,
-            'y': y_data[i],
-            'name': l,
-            'mode': 'line',
-            'line': {
-                'dash': 'dash',
-                'color': 'grey',
-                'width': 1
-            },
+            'name': f"{l} ({dataset_name})",
+            # 'mode': 'markers',
+            # 'marker': {'size': 10}
+            'mode': 'lines+markers',
+            'line': {'width': 2.5},
+            'marker': {'size': 8}
         } for i, l in enumerate(labels)
     ]
 
@@ -432,10 +437,12 @@ def change_ratio(data):
     d = data[:]
     for idx, trace in enumerate(data):
         ratio = []
-        tA, tB = trace[1:], trace[:-1]
-        for iA, iB in zip(tA, tB):
+        derivative = [a-b for a,b in zip(trace[1:], trace[:-1])]
+        cumulative = trace[1:]
+
+        for a, b in zip(derivative, cumulative):
             try:
-                r = iA / iB
+                r = a / b
             except ZeroDivisionError:
                 r = 0.0
 
