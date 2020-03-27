@@ -325,6 +325,9 @@ def draw_change_ratio(datasets, regions, dates, datamode, transform):
     x0, xN = dates
     x_data = dates_as_str[x0: xN]
 
+    # Set y_range
+    y_range = [-0.5, 1.5]
+
     figdata = []
     for dataset in datasets:
         # Get selected data
@@ -343,6 +346,7 @@ def draw_change_ratio(datasets, regions, dates, datamode, transform):
         # Log scale?
         if transform == 'log':
             y_data = list(map(np.log, y_data))
+            y_range = list(map(np.log, y_range))
 
         # Make Figure Data
         figdata += make_figdata(x_data, y_data, regions, dataset)
@@ -365,7 +369,8 @@ def draw_change_ratio(datasets, regions, dates, datamode, transform):
                     'showline': True,
                     'mirror': True,
                     'linewidth': 1,
-                    'linecolor': 'black'
+                    'linecolor': 'black',
+                    'range': y_range
                 },
                 'margin': {'t': 20, 'pad': 0},
                 'hovermode': 'closest',
