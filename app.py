@@ -264,7 +264,7 @@ def draw_lineplots(datasets, regions, dates, datamode, transform):
 
         # Fit before transforming.
         if datamode == 'fit':
-            fit_data = list(map(lowess, y_data))
+            y_data = list(map(lowess, y_data))
 
         # Log scale?
         if transform == 'log':
