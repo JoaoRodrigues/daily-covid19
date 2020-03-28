@@ -27,7 +27,7 @@ def _unique_sort(iterable):
 
 # Source of data
 # DATA = "https://s3-us-west-1.amazonaws.com/starschema.covid/JHU_COVID-19.csv"
-DATA = "https://levitt-covid19-data.s3-us-west-1.amazonaws.com/Data_COVID-19.csv"
+DATA = "https://raw.githubusercontent.com/csblab/covid19-data/master/output/Data_COVID-19.csv"
 
 def read_data_as_dataframe(url):
 
